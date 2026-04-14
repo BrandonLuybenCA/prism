@@ -1,0 +1,94 @@
+name: Build Prism IPA (Swift - Tiny)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create Xcode Project
+        run: |
+          mkdir -p Prism.xcodeproj
+          cat > Prism.xcodeproj/project.pbxproj << 'EOF'
+          // !$*UTF8*$!
+          {
+            archiveVersion = 1;
+            classes = {};
+            objectVersion = 56;
+            objects = {};
+            rootObject = "";
+          }
+          EOF
+
+      - name: Build iOS App
+        run: |
+          # Compile Swift files directly
+          mkdir -p build/Payload/Prism.app
+          
+          swiftc -target arm64-apple-ios17.0 \
+            -sdk $(xcrun --sdk iphoneos --show-sdk-path) \
+            -O -whole-module-optimization \
+            -framework SwiftUI -framework ActivityKit -framework WidgetKit \
+            Sources/*.swift \
+            -o build/Payload/Prism.app/Prism
+          
+          # Create Info.plist
+          cat > build/Payload/Prism.app/Info.plist << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleIdentifier</key>
+            <string>com.prism.focus</string>
+            <key>CFBundleName</key>
+            <string>Prism</string>
+            <key>CFBundleDisplayName</key>
+            <string>Prism</string>
+            <key>CFBundleVersion</key>
+            <string>1</string>
+            <key>CFBundleShortVersionString</key>
+            <string>1.0</string>
+            <key>CFBundleExecutable</key>
+            <string>Prism</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>UIApplicationSupportsIndirectInputEvents</key>
+            <true/>
+            <key>UILaunchStoryboardName</key>
+            <string>LaunchScreen</string>
+            <key>UIRequiredDeviceCapabilities</key>
+            <array><string>arm64</string></array>
+            <key>UISupportedInterfaceOrientations</key>
+            <array><string>UIInterfaceOrientationPortrait</string></array>
+            <key>NSSupportsLiveActivities</key>
+            <true/>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Package as IPA
+        run: |
+          cd build
+          zip -9 -r Prism.ipa Payload
+          echo "📦 Final IPA size:"
+          du -sh Prism.ipa
+
+      - name: Serve IPA with Cloudflare Tunnel
+        run: |
+          brew install cloudflare/cloudflare/cloudflared
+          cd build
+          python3 -m http.server 8080 &
+          cloudflared tunnel --url http://localhost:8080 > tunnel.log 2>&1 &
+          sleep 8
+          TUNNEL_URL=$(grep -o 'https://[^ ]*\.trycloudflare\.com' tunnel.log | head -1)
+          echo ""
+          echo "=============================================="
+          echo "✅ DOWNLOAD LINK:"
+          echo "$TUNNEL_URL/Prism.ipa"
+          echo ""
+          echo "📦 Expected size: ~2-4MB"
+          echo "=============================================="
+          sleep 600
